@@ -1,0 +1,49 @@
+venv/
+db.sqlite3
+
+# Environment variables
+.env
+*.env
+
+
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Logs
+*.log
+**/logs/
+
+# Static files
+staticfiles/
+static/
+
+# Media files (uploaded user files)
+media/
+
+# Temporary files
+tmp/
+*.tmp
+*.swp
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Testing
+.coverage
+.tox/
+*.coverage
+*.pytest_cache/
+
+# Build artifacts
+*.egg-info/
+*.eggs/
+dist/
+build/
