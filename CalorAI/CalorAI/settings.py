@@ -27,8 +27,16 @@ DEBUG = True
 
 ALLOWED_HOSTS = []
 
-TELEGRAM_API_TOKEN = "6172419214:AAH6vjJtM07aL3dVH6gJKW6sRG40lirdWDw"
-OPENAI_API_KEY = "***REMOVED***"
+
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+ENV = os.getenv("ENV")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+TELEGRAM_API_TOKEN = os.getenv("TELEGRAM_API_TOKEN")
+
 
 # Application definition
 
