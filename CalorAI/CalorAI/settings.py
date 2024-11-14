@@ -48,7 +48,8 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'core',
-    'openai_api'
+    'openai_api',
+    'openai_whisper'
 ]
 
 MIDDLEWARE = [
