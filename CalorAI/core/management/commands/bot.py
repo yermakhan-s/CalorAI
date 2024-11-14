@@ -137,6 +137,8 @@ from core.models import MyUser, Calorie
 from datetime import date
 from openai_api.api_request import get_nutritional_info
 from django.conf import settings
+import os
+from openai_whisper.utils import speach_to_text
 
 
 class Command(BaseCommand):
@@ -195,7 +197,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f'Hello {user.first_name}! Input the food description and get its nutritional value. Accuracy directly corresponds to the amount of details provided.')
 
 
-async def handle_food_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_text_food_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user = await get_user(user_id)
     description = update.message.text
@@ -207,7 +209,7 @@ async def handle_food_description(update: Update, context: ContextTypes.DEFAULT_
     entry_id = await add_cpfc_entry(user, description, cpfc)
 
     # Prepare the response with a delete button
-    message = (f"Estimated nutritional values for this meal:\n"
+    message = (f"Estimated nutritional values:\n"
                f"Calories: {cpfc['calories']} kcal\n"
                f"Proteins: {cpfc['proteins']} g\n"
                f"Fats: {cpfc['fats']} g\n"
@@ -218,6 +220,50 @@ async def handle_food_description(update: Update, context: ContextTypes.DEFAULT_
     # Send the response message with the delete button
     await update.message.reply_text(message, reply_markup=reply_markup)
 
+
+async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    # Check if the message contains an audio or voice file
+    audio_file = update.message.audio or update.message.voice
+    if not audio_file:
+        await update.message.reply_text("No audio file detected. Please send a valid audio message.")
+        return
+
+    # Download the audio file
+    file = await context.bot.get_file(audio_file.file_id)
+    file_path = f"temp_audio_{user_id}.ogg"
+    await file.download_to_drive(file_path)
+
+    # Convert audio to text using a speech-to-text API (e.g., OpenAI Whisper or another service)
+    try:
+        transcription = speach_to_text(file_path)
+        user_id = update.effective_user.id
+        user = await get_user(user_id)
+        cpfc = calculate_cpfc(transcription)
+
+        # Save the CPFC entry in the database and get its ID
+        entry_id = await add_cpfc_entry(user, transcription, cpfc)
+
+        # Prepare the response with a delete button
+        message = (f"Estimated nutritional values:\n"
+                f"Calories: {cpfc['calories']} kcal\n"
+                f"Proteins: {cpfc['proteins']} g\n"
+                f"Fats: {cpfc['fats']} g\n"
+                f"Carbohydrates: {cpfc['carbohydrates']} g")
+        keyboard = [[InlineKeyboardButton("🗑 Delete", callback_data=f"delete_{entry_id}")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        # Send the response message with the delete button
+        await update.message.reply_text(message, reply_markup=reply_markup)
+    except Exception as e:
+        await update.message.reply_text("Sorry, I couldn't process the audio. Please try again.")
+        print(f"Error processing audio: {e}")
+    finally:
+        # Clean up the temporary file
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            
 
 async def delete_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -290,7 +336,9 @@ def main() -> None:
     # Command Handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("daily_summary", daily_summary))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_food_description))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_food_description))
+    # Add Audio Handler
+    app.add_handler(MessageHandler(filters.AUDIO | filters.VOICE, handle_audio))
 
     # Callback Query Handler for Delete Button
     app.add_handler(CallbackQueryHandler(delete_response, pattern="^delete_"))
