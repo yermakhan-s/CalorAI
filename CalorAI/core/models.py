@@ -8,7 +8,7 @@ class MyUser(models.Model):
     user_id = models.CharField(max_length=100, null=True, blank=True)
     tokens = models.IntegerField(default=20)
     created_date = models.DateTimeField(default=timezone.now)
-    language = models.CharField(max_length=10, default=None) 
+    language = models.CharField(max_length=10, default='en', null=True, blank=True) 
 
     def __str__(self):
         return self.username

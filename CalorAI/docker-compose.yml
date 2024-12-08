@@ -32,7 +32,7 @@ services:
     build:
       context: .
     container_name: telegram_bot
-    command: python manage.py runbot
+    command: python manage.py bot
     volumes:
       - .:/app
     depends_on:

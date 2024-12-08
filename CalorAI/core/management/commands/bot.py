@@ -138,7 +138,7 @@ from datetime import date
 from openai_api.api_request import get_nutritional_info
 from django.conf import settings
 import os
-from openai_whisper.utils import speach_to_text
+# from openai_whisper.utils import speech_to_text
 
 
 class Command(BaseCommand):
@@ -164,7 +164,8 @@ def update_or_create_user(user_id, first_name, last_name, username):
             'username': username,
         }
     )
-    return user
+
+    return (user, created) 
 
 
 @sync_to_async
@@ -185,35 +186,89 @@ def delete_cpfc_entry(entry_id):
     Calorie.objects.filter(id=entry_id).delete()
 
 
+async def show_language_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Display a language choice inline keyboard.
+    """
+    keyboard = [
+        [InlineKeyboardButton("English", callback_data='lang_en')],
+        [InlineKeyboardButton("Russian", callback_data='lang_ru')],
+        # [InlineKeyboardButton("Kazakh", callback_data='lang_kk')],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(
+        "Welcome! Please choose your preferred language:",
+        reply_markup=reply_markup
+    )
+
+async def handle_language_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+    selected_language = query.data.split('_')[1]  # Extract the language code (e.g., 'en', 'ru', 'kk')
+
+    # Update the user's language choice in the database
+    await update_user_language(user_id=user_id, language=selected_language)
+    print('*'*100)
+    # Confirm the choice to the user
+    await query.edit_message_text(
+        text=f"Language set to {selected_language.upper()}. You can change this later in the settings."
+    )
+
+
+async def update_user_language(user_id, language):
+    # Your database logic to update the user's language
+    user = await get_user(user_id)
+    if user:
+        user.language = language
+        await sync_to_async(user.save)()
+
 # Telegram command handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    user = await update_or_create_user(
+    user, created = await update_or_create_user(
         user_id=user_id,
         first_name=update.effective_user.first_name,
         last_name=update.effective_user.last_name,
         username=update.effective_user.username
     )
+    # if created:
+    #     await show_language_choice(update, context)
+    #     return
+
     await update.message.reply_text(f'Hello {user.first_name}! Input the food description and get its nutritional value. Accuracy directly corresponds to the amount of details provided.')
 
 
 async def handle_text_food_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    user = await get_user(user_id)
+    try:
+        user = await get_user(user_id)
+    except:
+        user, created = await update_or_create_user(
+            user_id=user_id,
+            first_name=update.effective_user.first_name,
+            last_name=update.effective_user.last_name,
+            username=update.effective_user.username
+        )
     description = update.message.text
 
     # Calculate CPFC based on the description
-    cpfc = calculate_cpfc(description)
+    try:
+        cpfc = calculate_cpfc(description)
 
-    # Save the CPFC entry in the database and get its ID
-    entry_id = await add_cpfc_entry(user, description, cpfc)
+        # Save the CPFC entry in the database and get its ID
+        entry_id = await add_cpfc_entry(user, description, cpfc)
 
-    # Prepare the response with a delete button
-    message = (f"Estimated nutritional values:\n"
-               f"Calories: {cpfc['calories']} kcal\n"
-               f"Proteins: {cpfc['proteins']} g\n"
-               f"Fats: {cpfc['fats']} g\n"
-               f"Carbohydrates: {cpfc['carbohydrates']} g")
+        # Prepare the response with a delete button
+        message = (f"Estimated nutritional values:\n"
+                f"Calories: {cpfc['calories']} kcal\n"
+                f"Proteins: {cpfc['proteins']} g\n"
+                f"Fats: {cpfc['fats']} g\n"
+                f"Carbohydrates: {cpfc['carbohydrates']} g")
+    except:
+        message = "Please enter a valid food description"
+        return await update.message.reply_text(message)
     keyboard = [[InlineKeyboardButton("🗑 Delete", callback_data=f"delete_{entry_id}")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -237,7 +292,7 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Convert audio to text using a speech-to-text API (e.g., OpenAI Whisper or another service)
     try:
-        transcription = speach_to_text(file_path)
+        transcription = speech_to_text(file_path)
         user_id = update.effective_user.id
         user = await get_user(user_id)
         cpfc = calculate_cpfc(transcription)
@@ -321,13 +376,20 @@ async def daily_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # CPFC Calculation (mocked)
 def calculate_cpfc(description: str):
     response = get_nutritional_info(description)  # Replace with actual API call
-    f, p, cr, cl = [int(i) for i in response.split(' ')]
+    f, p, cr, cl = [int(float(i)) for i in response.split(' ')]
     return {
         'calories': cl,
         'proteins': p,
         'fats': f,
         'carbohydrates': cr
     }
+    
+
+async def handle_non_text(update, context):
+    """
+    Handle inputs that are not text messages.
+    """
+    await update.message.reply_text("I can only process text messages at the moment. Please try sending text!")
 
 
 def main() -> None:
@@ -335,13 +397,17 @@ def main() -> None:
 
     # Command Handlers
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("choose_language", show_language_choice))
+
+    app.add_handler(CallbackQueryHandler(handle_language_choice, pattern='^lang_'))
     app.add_handler(CommandHandler("daily_summary", daily_summary))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_food_description))
     # Add Audio Handler
-    app.add_handler(MessageHandler(filters.AUDIO | filters.VOICE, handle_audio))
+    # app.add_handler(MessageHandler(filters.AUDIO | filters.VOICE, handle_audio))
 
     # Callback Query Handler for Delete Button
     app.add_handler(CallbackQueryHandler(delete_response, pattern="^delete_"))
+    app.add_handler(MessageHandler(~filters.TEXT, handle_non_text))
 
     # Run the bot
     app.run_polling()
